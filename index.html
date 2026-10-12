@@ -198,7 +198,7 @@ button{font-family:var(--font);font-variant-numeric:tabular-nums}
 .focus-bar .btn:hover{background:#F4F8FE}
 
 /* ---------- timetable grid ---------- */
-.tt-grid{display:grid;grid-template-columns:86px repeat(7,minmax(0,1fr));grid-template-rows:68px repeat(4,48px) 56px repeat(5,48px) 56px repeat(2,48px);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:opacity .22s var(--ease-out)}
+.tt-grid{display:grid;grid-template-columns:86px repeat(7,minmax(0,1fr));grid-template-rows:68px repeat(4,48px) 56px repeat(3,48px) 56px repeat(4,48px);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:opacity .22s var(--ease-out)}
 .ghead{background:#F8FAFD;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:5px 2px;text-align:center}
 .ghead .dh-w{font-size:11px;color:var(--muted);line-height:1.2}
 .ghead .dh-d{font-size:15px;font-weight:700;color:var(--ink);line-height:1.15;font-variant-numeric:tabular-nums}
@@ -457,21 +457,21 @@ var SEM = { startY: 2026, startM: 8, startD: 6, weeks: 20, exam: [17,18,19], pra
 var WEEKDAYS = ["周日","周一","周二","周三","周四","周五","周六"];
 var DAY_ORDER = [1,2,3,4,5,6,0]; /* 课表列序：周一至周日 */
 
-/* 十三节课的起止时间（与选课 PDF 一致） */
+/* 十三节课的起止时间（按暨南大学深圳校区作息更正：第五节13:30起、第九节18:00起） */
 var PERIODS = [
   { l:"第一节", a:"08:00", b:"08:45" },
   { l:"第二节", a:"08:55", b:"09:40" },
   { l:"第三节", a:"10:00", b:"10:45" },
   { l:"第四节", a:"10:55", b:"11:40" },
-  { l:"第五节", a:"12:40", b:"13:25" },
-  { l:"第六节", a:"13:35", b:"14:20" },
-  { l:"第七节", a:"14:30", b:"15:15" },
-  { l:"第八节", a:"15:25", b:"16:10" },
-  { l:"第九节", a:"16:20", b:"17:05" },
-  { l:"第十节", a:"17:15", b:"18:00" },
-  { l:"第十一节", a:"19:00", b:"19:45" },
-  { l:"第十二节", a:"19:55", b:"20:40" },
-  { l:"第十三节", a:"20:50", b:"21:35" }
+  { l:"第五节", a:"13:30", b:"14:15" },
+  { l:"第六节", a:"14:25", b:"15:10" },
+  { l:"第七节", a:"15:20", b:"16:05" },
+  { l:"第八节", a:"16:15", b:"17:00" },
+  { l:"第九节", a:"18:00", b:"18:45" },
+  { l:"第十节", a:"18:55", b:"19:40" },
+  { l:"第十一节", a:"19:50", b:"20:35" },
+  { l:"第十二节", a:"20:45", b:"21:30" },
+  { l:"第十三节", a:"21:40", b:"22:25" }
 ];
 
 var COURSES = {
@@ -593,8 +593,34 @@ function teachersOf(id){
   SESSIONS.forEach(function(x){ if(x.c===id){ set[x.t]=1; } });
   return Object.keys(set);
 }
-function sessPeriods(x){ return x.s===x.e ? "第"+x.s+"节" : "第"+x.s+"–"+x.e+"节"; }
-function sessTime(x){ return PERIODS[x.s-1].a + "–" + PERIODS[x.e-1].b; }
+/* 大空档边界：第4节后（午休）、第8节后（晚饭）；跨空档的课拆分为两段显示 */
+var BREAK_AFTER = [4, 8];
+function segsOf(x){
+  var segs = [], s = x.s;
+  for(var p = x.s; p < x.e; p++){
+    if(BREAK_AFTER.indexOf(p) >= 0){ segs.push([s, p]); s = p + 1; }
+  }
+  segs.push([s, x.e]);
+  return segs;
+}
+function segPeriods(g){ return g[0]===g[1] ? "第"+g[0]+"节" : "第"+g[0]+"–"+g[1]+"节"; }
+function segTime(g){ return PERIODS[g[0]-1].a + "–" + PERIODS[g[1]-1].b; }
+function segCell(x){
+  return segsOf(x).map(function(g){ return "<b>" + segTime(g) + "</b>" + segPeriods(g); }).join("");
+}
+function timeText(x){
+  return segsOf(x).map(function(g){ return segPeriods(g) + " " + segTime(g); }).join("、");
+}
+function toMin(t){ var p = t.split(":"); return (+p[0]) * 60 + (+p[1]); }
+function fmtDur(m){ var h = Math.floor(m / 60), mm = m % 60; return (h ? h + "小时" : "") + (mm ? mm + "分钟" : ""); }
+function gapsOf(x){
+  var segs = segsOf(x), out = [];
+  for(var i=1; i<segs.length; i++){
+    var a = PERIODS[segs[i-1][1]-1].b, b = PERIODS[segs[i][0]-1].a;
+    out.push(a + "–" + b + "（可休息 " + fmtDur(toMin(b) - toMin(a)) + "）");
+  }
+  return out;
+}
 function sessionsOfWeek(w){
   return SESSIONS.filter(function(x){ return x.w.indexOf(w) >= 0; })
                 .sort(function(a,b){ return a.d-b.d || a.s-b.s; });
@@ -762,12 +788,14 @@ function makeBgCell(p,d){
   el.setAttribute("aria-hidden","true");
   return el;
 }
-function blockAria(c, x, off, sp){
-  return c.name + (c.cls ? "（" + c.cls + "）" : "") + "，" + WEEKDAYS[x.d] + " " + sessPeriods(x) + " " + sessTime(x) +
+function blockAria(c, x, off, sp, g){
+  g = g || [x.s, x.e];
+  return c.name + (c.cls ? "（" + c.cls + "）" : "") + "，" + WEEKDAYS[x.d] + " " + segPeriods(g) + " " + segTime(g) +
     "，" + x.t + "，" + x.rm + "，" + weekLabel(x.w) +
     (off ? "，本周停课（" + sp.name + "）" : "，本周上课") + "。点击查看详情";
 }
-function makeBlock(x, i, animate){
+function makeBlock(x, i, animate, g){
+  g = g || [x.s, x.e];
   var c = COURSES[x.c];
   var sp = specialAt(state.week, x.d);
   var off = !!(sp && sp.kind === "off");
@@ -777,17 +805,18 @@ function makeBlock(x, i, animate){
   if(state.focus){
     b.className += (state.focus === x.c) ? " focused" : " dim";
   }
-  b.style.gridRow = (x.s+1) + " / span " + (x.e - x.s + 1);
+  b.style.gridRow = (g[0]+1) + " / span " + (g[1] - g[0] + 1);
   b.style.gridColumn = String(displayCol(x.d));
   b.style.setProperty("--i", String(Math.min(i, 12)));
-  b.setAttribute("aria-label", blockAria(c, x, off, sp));
+  b.setAttribute("aria-label", blockAria(c, x, off, sp, g));
   b.innerHTML = '<span class="blk-name">' + esc(c.name) + '</span>' +
     '<span class="blk-meta od-truncate">' + esc(x.t) + " · " + esc(x.rm) + '</span>' +
     (off ? '<span class="offchip">假期停课</span>' : '<span class="wtag">' + weekLabel(x.w) + "</span>");
   b.addEventListener("click", function(){ openPopover(b, x, { week: state.week, day: x.d }); });
   return b;
 }
-function makeMakeupBlock(x, dayD, i, animate){
+function makeMakeupBlock(x, dayD, i, animate, g){
+  g = g || [x.s, x.e];
   var c = COURSES[x.c];
   var sp = specialAt(state.week, dayD);
   var mk = makeupOf(sp);
@@ -797,10 +826,10 @@ function makeMakeupBlock(x, dayD, i, animate){
   if(state.focus){
     b.className += (state.focus === x.c) ? " focused" : " dim";
   }
-  b.style.gridRow = (x.s+1) + " / span " + (x.e - x.s + 1);
+  b.style.gridRow = (g[0]+1) + " / span " + (g[1] - g[0] + 1);
   b.style.gridColumn = String(displayCol(dayD));
   b.style.setProperty("--i", String(Math.min(i, 12)));
-  b.setAttribute("aria-label", c.name + "（" + c.cls + "），" + WEEKDAYS[dayD] + " " + sessPeriods(x) + " " + sessTime(x) +
+  b.setAttribute("aria-label", c.name + "（" + c.cls + "），" + WEEKDAYS[dayD] + " " + segPeriods(g) + " " + segTime(g) +
     "，" + x.t + "，" + x.rm + "，调休补课（补" + makeupLabel(mk) + "的课）。点击查看详情");
   b.innerHTML = '<span class="blk-name">' + esc(c.name) + '</span>' +
     '<span class="blk-meta od-truncate">' + esc(x.t) + " · " + esc(x.rm) + '</span>' +
@@ -819,12 +848,16 @@ function renderGrid(dir, animate){
   }
   var list = sessionsOfWeek(state.week);
   var i = 0;
-  list.forEach(function(x){ frag.appendChild(makeBlock(x, i++, animate)); });
+  list.forEach(function(x){
+    segsOf(x).forEach(function(g){ frag.appendChild(makeBlock(x, i++, animate, g)); });
+  });
   for(var dm=0; dm<7; dm++){
     var dd = DAY_ORDER[dm];
     var mkDay = makeupOf(specialAt(state.week, dd));
     if(mkDay){
-      makeupSessions(mkDay).forEach(function(x){ frag.appendChild(makeMakeupBlock(x, dd, i++, animate)); });
+      makeupSessions(mkDay).forEach(function(x){
+        segsOf(x).forEach(function(g){ frag.appendChild(makeMakeupBlock(x, dd, i++, animate, g)); });
+      });
     }
   }
   gridEl.innerHTML = "";
@@ -856,7 +889,7 @@ function makeTodayItem(x, opts){
   var b = document.createElement("button");
   b.type = "button";
   b.className = "tc-item";
-  b.innerHTML = '<span class="tc-time od-nowrap"><b>' + PERIODS[x.s-1].a + "–" + PERIODS[x.e-1].b + '</b>' + sessPeriods(x) + '</span>' +
+  b.innerHTML = '<span class="tc-time od-nowrap">' + segCell(x) + '</span>' +
     '<span class="od-fill"><span class="tc-name">' + esc(c.name) + '</span>' +
     '<span class="tc-sub od-truncate">' + esc(x.t) + " · " + esc(x.rm) + '</span></span>';
   b.addEventListener("click", function(){ openPopover(b, x, opts); });
@@ -963,7 +996,7 @@ function makeDayItem(x, sp, mk, day){
   var b = document.createElement("button");
   b.type = "button";
   b.className = "dv-item" + (off ? " is-off" : "") + (mk ? " is-makeup" : "");
-  b.innerHTML = '<span class="dv-time od-nowrap"><b>' + PERIODS[x.s-1].a + "–" + PERIODS[x.e-1].b + '</b>' + sessPeriods(x) + '</span>' +
+  b.innerHTML = '<span class="dv-time od-nowrap">' + segCell(x) + '</span>' +
     '<span class="dv-main"><span class="dv-name">' + esc(c.name) +
     (mk ? '<span class="chip work">补课</span>' : (off ? '<span class="chip off">假期停课</span>' : '<span class="wtag-inline">' + weekLabel(x.w) + '</span>')) +
     '</span><span class="dv-meta od-truncate">' + esc(x.t) + " · " + esc(x.rm) + '</span></span>';
@@ -1046,9 +1079,11 @@ function openPopover(anchor, x, opts){
   var sp = specialAt(ctxWeek, x.d);
   var off = !mk && !!(sp && sp.kind === "off");
   var rows = [
-    ["时间", WEEKDAYS[day] + " " + sessPeriods(x) + " · " + sessTime(x)],
-    ["教学周", weekLabel(x.w) + "（共 " + x.w.length + " 周）"]
+    ["时间", WEEKDAYS[day] + " " + timeText(x)]
   ];
+  var gs = gapsOf(x);
+  if(gs.length){ rows.push(["课间空档", gs.join("；")]); }
+  rows.push(["教学周", weekLabel(x.w) + "（共 " + x.w.length + " 周）"]);
   if(mk){
     rows.push(["调休补课", fmtMD(opts.date || dateAt(ctxWeek, day)) + "（" + WEEKDAYS[day] + "）补" + makeupLabel(mk) + "的课"]);
   } else {
